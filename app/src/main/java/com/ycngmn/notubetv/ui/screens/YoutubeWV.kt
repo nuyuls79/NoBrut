@@ -24,18 +24,18 @@ import com.ycngmn.notubetv.utils.*
 fun YoutubeWV(youtubeVM: YoutubeVM = viewModel()) {
 
     val context = LocalContext.current
-    val activity = context as? Activity ?: return // ✅ FIX: safe cast
+    val activity = context as? Activity ?: return
 
     val state = rememberWebViewState("https://www.youtube.com/tv")
     val navigator = rememberWebViewNavigator()
 
-    val jsScript = youtubeVM.scriptData
-    val updateData = youtubeVM.updateData
+    // ✅ FIX: ambil VALUE dari State
+    val jsScript = youtubeVM.scriptData.value
+    val updateData = youtubeVM.updateData.value
 
     val loadingState = state.loadingState
     val exitTrigger = remember { mutableStateOf(false) }
 
-    // ✅ Handle back press safely
     BackHandler {
         if (state.loadingState is LoadingState.Finished) {
             navigator.evaluateJavaScript(readRaw(context, R.raw.back_bridge))
@@ -44,33 +44,35 @@ fun YoutubeWV(youtubeVM: YoutubeVM = viewModel()) {
         }
     }
 
-    // ✅ Fetch data once
+    // ✅ Fetch sekali saja (FIX nullable fetchScripts)
     LaunchedEffect(Unit) {
-        youtubeVM.setScript(fetchScripts())
+        val script = fetchScripts()
+        if (script != null) {
+            youtubeVM.setScript(script)
+        }
 
         getUpdate(context, navigator) { update ->
-            if (update != null) youtubeVM.setUpdate(update)
+            if (update != null) {
+                youtubeVM.setUpdate(update)
+            }
         }
     }
 
-    // ✅ Inject JS ONLY once when finished
+    // ✅ Inject JS aman
     LaunchedEffect(loadingState, jsScript) {
         if (loadingState == LoadingState.Finished && jsScript != null) {
             navigator.evaluateJavaScript(jsScript)
         }
     }
 
-    // ✅ Show update dialog
     if (updateData != null) {
         UpdateDialog(updateData, navigator)
     }
 
-    // ✅ Exit app
     if (exitTrigger.value) {
         activity.finish()
     }
 
-    // ✅ Splash loading (safe progress)
     val loading = state.loadingState as? LoadingState.Loading
     if (loading != null) {
         SplashLoading(loading.progress.coerceIn(0f, 1f))
@@ -89,15 +91,11 @@ fun YoutubeWV(youtubeVM: YoutubeVM = viewModel()) {
                 WindowManager.LayoutParams.MATCH_PARENT
             )
 
-            // ✅ Cookie FIX for API 23
             val cookieManager = CookieManager.getInstance()
             cookieManager.setAcceptCookie(true)
 
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
                 cookieManager.setAcceptThirdPartyCookies(webView, true)
-            }
-
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
                 cookieManager.flush()
             }
 
@@ -118,17 +116,13 @@ fun YoutubeWV(youtubeVM: YoutubeVM = viewModel()) {
 
             webView.apply {
 
-                // ✅ JS Bridge (safe)
                 addJavascriptInterface(ExitBridge(exitTrigger), "ExitBridge")
                 addJavascriptInterface(NetworkBridge(navigator), "NetworkBridge")
 
-                // ✅ Hardware acceleration fix
                 setLayerType(View.LAYER_TYPE_HARDWARE, null)
 
-                // ⚠️ FIX: jangan terlalu kecil di device lama
-                setInitialScale(30) // sebelumnya 25 → bisa bikin crash di beberapa device
+                setInitialScale(30)
 
-                // ✅ Disable scrollbar
                 isVerticalScrollBarEnabled = false
                 isHorizontalScrollBarEnabled = false
             }
