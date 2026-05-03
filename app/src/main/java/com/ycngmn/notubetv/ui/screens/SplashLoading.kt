@@ -20,9 +20,11 @@ import com.ycngmn.notubetv.R
 @Composable
 fun SplashLoading(progress: Float) {
 
-    // ✅ FIX: pastikan progress tidak lebih dari 1.0
+    // ✅ aman + clamp biar tidak overflow
+    val safeProgress = progress.coerceIn(0f, 1f)
+
     val animatedProgress by animateFloatAsState(
-        targetValue = (progress * 1.5f).coerceIn(0f, 1f),
+        targetValue = safeProgress,
         animationSpec = ProgressIndicatorDefaults.ProgressAnimationSpec
     )
 
@@ -56,9 +58,9 @@ fun SplashLoading(progress: Float) {
 
                 Spacer(modifier = Modifier.width(8.dp))
 
-                // ✅ FIX: gunakan progress langsung (bukan lambda)
+                // ✅ FIX CRITICAL: lambda form (paling kompatibel)
                 LinearProgressIndicator(
-                    progress = animatedProgress,
+                    progress = { animatedProgress },
                     modifier = Modifier.weight(1f),
                     color = Color(0xFFFF0000),
                     trackColor = Color.LightGray,
