@@ -3,15 +3,7 @@ package com.ycngmn.notubetv.ui.screens
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.*
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.ProgressIndicatorDefaults
@@ -28,30 +20,33 @@ import com.ycngmn.notubetv.R
 @Composable
 fun SplashLoading(progress: Float) {
 
-    val animatedProgress by
-    animateFloatAsState(
-        targetValue = (progress * 1.5F),
+    // ✅ FIX: pastikan progress tidak lebih dari 1.0
+    val animatedProgress by animateFloatAsState(
+        targetValue = (progress * 1.5f).coerceIn(0f, 1f),
         animationSpec = ProgressIndicatorDefaults.ProgressAnimationSpec
     )
 
     Box(
-        Modifier
+        modifier = Modifier
             .fillMaxSize()
-            .background(Color(0XFF0B0B0B))
+            .background(Color(0xFF0B0B0B))
     ) {
         Column(
             modifier = Modifier.align(Alignment.Center),
-            horizontalAlignment = Alignment.CenterHorizontally,
+            horizontalAlignment = Alignment.CenterHorizontally
         ) {
+
             Image(
                 painter = painterResource(R.drawable.banner_fg),
                 contentDescription = null,
                 modifier = Modifier.padding(bottom = 80.dp)
             )
+
             Row(
-                modifier = Modifier.fillMaxWidth(0.6F),
+                modifier = Modifier.fillMaxWidth(0.6f),
                 verticalAlignment = Alignment.CenterVertically
             ) {
+
                 Icon(
                     painter = painterResource(R.drawable.toys_fan_24px),
                     contentDescription = null,
@@ -59,18 +54,17 @@ fun SplashLoading(progress: Float) {
                     modifier = Modifier.size(26.dp)
                 )
 
-                Spacer(Modifier.width(8.dp))
+                Spacer(modifier = Modifier.width(8.dp))
 
+                // ✅ FIX: gunakan progress langsung (bukan lambda)
                 LinearProgressIndicator(
-                    progress = { animatedProgress },
-                    modifier = Modifier.weight(1F),
-                    color = Color(0XFFFF0000),
+                    progress = animatedProgress,
+                    modifier = Modifier.weight(1f),
+                    color = Color(0xFFFF0000),
                     trackColor = Color.LightGray,
-                    gapSize = 0.dp,
                     strokeCap = StrokeCap.Square
                 )
             }
         }
     }
-
 }
