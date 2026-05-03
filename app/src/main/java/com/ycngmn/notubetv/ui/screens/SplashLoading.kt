@@ -1,72 +1,144 @@
 package com.ycngmn.notubetv.ui.screens
 
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.foundation.Image
-import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.*
-import androidx.compose.material3.Icon
-import androidx.compose.material3.LinearProgressIndicator
-import androidx.compose.material3.ProgressIndicatorDefaults
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.ui.Alignment
+import android.app.Activity
+import android.webkit.CookieManager
+import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.StrokeCap
-import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.unit.dp
+import androidx.compose.ui.platform.LocalContext
+import androidx.lifecycle.viewmodel.compose.viewModel
+import com.multiplatform.webview.web.LoadingState
+import com.multiplatform.webview.web.WebView
+import com.multiplatform.webview.web.rememberWebViewNavigator
+import com.multiplatform.webview.web.rememberWebViewState
 import com.ycngmn.notubetv.R
+import com.ycngmn.notubetv.ui.YoutubeVM
+import com.ycngmn.notubetv.ui.components.UpdateDialog
+import com.ycngmn.notubetv.utils.*
 
 @Composable
-fun SplashLoading(progress: Float) {
+fun YoutubeWV(youtubeVM: YoutubeVM = viewModel()) {
 
-    // ✅ aman + clamp biar tidak overflow
-    val safeProgress = progress.coerceIn(0f, 1f)
+    val context = LocalContext.current
+    val activity = context as? Activity ?: return
 
-    val animatedProgress by animateFloatAsState(
-        targetValue = safeProgress,
-        animationSpec = ProgressIndicatorDefaults.ProgressAnimationSpec
-    )
+    val state = rememberWebViewState("https://www.youtube.com/tv")
+    val navigator = rememberWebViewNavigator()
 
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(Color(0xFF0B0B0B))
-    ) {
-        Column(
-            modifier = Modifier.align(Alignment.Center),
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
+    val jsScript = youtubeVM.scriptData.value
+    val updateData = youtubeVM.updateData.value
 
-            Image(
-                painter = painterResource(R.drawable.banner_fg),
-                contentDescription = null,
-                modifier = Modifier.padding(bottom = 80.dp)
-            )
+    val loadingState = state.loadingState
+    val exitTrigger = remember { mutableStateOf(false) }
 
-            Row(
-                modifier = Modifier.fillMaxWidth(0.6f),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
+    val isWebReady = remember { mutableStateOf(false) }
+    val isJsInjected = remember { mutableStateOf(false) }
 
-                Icon(
-                    painter = painterResource(R.drawable.toys_fan_24px),
-                    contentDescription = null,
-                    tint = Color.White,
-                    modifier = Modifier.size(26.dp)
-                )
+    // 🔙 Back handler
+    BackHandler {
+        if (state.loadingState is LoadingState.Finished) {
+            try {
+                navigator.evaluateJavaScript(readRaw(context, R.raw.back_bridge))
+            } catch (_: Exception) {}
+        } else {
+            exitTrigger.value = true
+        }
+    }
 
-                Spacer(modifier = Modifier.width(8.dp))
+    // 📦 Load script + update
+    LaunchedEffect(Unit) {
+        val script = fetchScripts()
+        if (script != null) {
+            youtubeVM.setScript(script)
+        }
 
-                // ✅ FIX CRITICAL: lambda form (paling kompatibel)
-                LinearProgressIndicator(
-                    progress = { animatedProgress },
-                    modifier = Modifier.weight(1f),
-                    color = Color(0xFFFF0000),
-                    trackColor = Color.LightGray,
-                    strokeCap = StrokeCap.Square
-                )
+        getUpdate(context, navigator) { update ->
+            if (update != null) {
+                youtubeVM.setUpdate(update)
             }
         }
     }
+
+    // ⚡ SAFE JS injection (anti crash box)
+    LaunchedEffect(loadingState, jsScript, isWebReady.value) {
+
+        if (
+            loadingState is LoadingState.Finished &&
+            jsScript != null &&
+            isWebReady.value &&
+            !isJsInjected.value
+        ) {
+
+            isJsInjected.value = true
+
+            kotlinx.coroutines.delay(1500)
+
+            try {
+                navigator.evaluateJavaScript(jsScript)
+            } catch (_: Exception) {}
+        }
+    }
+
+    // 📌 update dialog
+    if (updateData != null) {
+        UpdateDialog(updateData, navigator)
+    }
+
+    // ❌ exit app
+    if (exitTrigger.value) {
+        activity.finish()
+    }
+
+    // 🔄 splash loading
+    val loading = state.loadingState as? LoadingState.Loading
+    if (loading != null) {
+        SplashLoading(loading.progress.coerceIn(0f, 1f))
+    }
+
+    // 🌐 WEBVIEW SAFE MODE
+    WebView(
+        modifier = Modifier.fillMaxSize(),
+        state = state,
+        navigator = navigator,
+        platformWebViewParams = permHandler(context),
+        captureBackPresses = false,
+        onCreated = { webView ->
+
+            isWebReady.value = true
+
+            val cookieManager = CookieManager.getInstance()
+            cookieManager.setAcceptCookie(true)
+
+            state.webSettings.apply {
+
+                customUserAgentString =
+                    "Mozilla/5.0 Cobalt/25 (Sony, PS4, Wired)"
+
+                isJavaScriptEnabled = true
+
+                androidWebSettings.apply {
+                    useWideViewPort = true
+                    domStorageEnabled = true
+                    hideDefaultVideoPoster = true
+                    mediaPlaybackRequiresUserGesture = false
+                }
+            }
+
+            webView.apply {
+
+                // 🔥 IMPORTANT: SOFTWARE RENDERING (anti crash Android box)
+                setLayerType(android.view.View.LAYER_TYPE_SOFTWARE, null)
+
+                isVerticalScrollBarEnabled = false
+                isHorizontalScrollBarEnabled = false
+
+                setInitialScale(30)
+
+                // ⚠️ DISABLED FOR STABILITY (enable later if stable)
+                // addJavascriptInterface(ExitBridge(exitTrigger), "ExitBridge")
+                // addJavascriptInterface(NetworkBridge(navigator), "NetworkBridge")
+            }
+        }
+    )
 }
