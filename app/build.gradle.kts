@@ -10,7 +10,7 @@ android {
 
     defaultConfig {
         applicationId = "com.ycngmn.notubetv"
-        minSdk = 24
+        minSdk = 23
         targetSdk = 35
         versionCode = 3
         versionName = "0.0.3"
