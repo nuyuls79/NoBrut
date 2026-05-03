@@ -1,146 +1,42 @@
 package com.ycngmn.notubetv.ui.screens
 
-import android.app.Activity
-import android.view.View
-import android.webkit.CookieManager
-import androidx.activity.compose.BackHandler
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.runtime.*
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.*
+import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.ProgressIndicatorDefaults
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
-import androidx.lifecycle.viewmodel.compose.viewModel
-import com.multiplatform.webview.web.LoadingState
-import com.multiplatform.webview.web.WebView
-import com.multiplatform.webview.web.rememberWebViewNavigator
-import com.multiplatform.webview.web.rememberWebViewState
-import com.ycngmn.notubetv.ui.YoutubeVM
-import com.ycngmn.notubetv.utils.fetchScripts
-import com.ycngmn.notubetv.utils.readRaw
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.unit.dp
 
 @Composable
-fun YoutubeWV(
-    youtubeVM: YoutubeVM = viewModel(),
-    skipSplash: Boolean = true
-) {
+fun SplashLoading(progress: Float) {
 
-    val context = LocalContext.current
-    val activity = context as? Activity ?: return
+    val safeProgress by animateFloatAsState(
+        targetValue = progress.coerceIn(0f, 1f),
+        animationSpec = ProgressIndicatorDefaults.ProgressAnimationSpec
+    )
 
-    val state = rememberWebViewState("https://www.youtube.com/tv")
-    val navigator = rememberWebViewNavigator()
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color(0xFF0B0B0B)),
+        contentAlignment = Alignment.Center
+    ) {
 
-    val jsScript = youtubeVM.scriptData
-    val updateData = youtubeVM.updateData
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
 
-    val loadingState = state.loadingState
-    val exitTrigger = remember { mutableStateOf(false) }
-
-    val isWebReady = remember { mutableStateOf(false) }
-    val isJsInjected = remember { mutableStateOf(false) }
-
-    val isBootSafe = remember { skipSplash }
-
-    // 🔙 Back handler
-    BackHandler {
-        try {
-            navigator.evaluateJavaScript(readRaw(context, com.ycngmn.notubetv.R.raw.back_bridge))
-        } catch (_: Exception) {
-            exitTrigger.value = true
-        }
-    }
-
-    // 📦 Load script (safe)
-    LaunchedEffect(Unit) {
-        try {
-            val script = fetchScripts()
-            if (script != null) {
-                youtubeVM.setScript(script)
-            }
-        } catch (_: Exception) {}
-
-        // update tetap jalan tapi aman
-        try {
-            com.ycngmn.notubetv.utils.getUpdate(context, navigator) { update ->
-                if (update != null) {
-                    youtubeVM.setUpdate(update)
-                }
-            }
-        } catch (_: Exception) {}
-    }
-
-    // ⚡ SAFE JS INJECTION (anti crash box)
-    LaunchedEffect(loadingState, jsScript, isWebReady.value) {
-
-        if (
-            loadingState is LoadingState.Finished &&
-            jsScript != null &&
-            isWebReady.value &&
-            !isJsInjected.value &&
-            isBootSafe
-        ) {
-
-            isJsInjected.value = true
-
-            kotlinx.coroutines.delay(2000)
-
-            try {
-                navigator.evaluateJavaScript(jsScript)
-            } catch (_: Exception) {}
-        }
-    }
-
-    // ❌ OPTIONAL SPLASH (DISABLED BY DEFAULT)
-    if (!skipSplash) {
-        val loading = state.loadingState as? LoadingState.Loading
-        if (loading != null) {
-            com.ycngmn.notubetv.ui.screens.SplashLoading(
-                loading.progress.coerceIn(0f, 1f)
+            LinearProgressIndicator(
+                progress = safeProgress,
+                modifier = Modifier.fillMaxWidth(0.6f),
+                color = Color.Red,
+                trackColor = Color.LightGray,
+                strokeCap = StrokeCap.Square
             )
         }
     }
-
-    // 🚀 WEBVIEW CORE (SAFE MODE)
-    WebView(
-        modifier = Modifier.fillMaxSize(),
-        state = state,
-        navigator = navigator,
-        platformWebViewParams = com.ycngmn.notubetv.utils.permHandler(context),
-        captureBackPresses = false,
-        onCreated = { webView ->
-
-            isWebReady.value = true
-
-            val cookieManager = CookieManager.getInstance()
-            cookieManager.setAcceptCookie(true)
-
-            state.webSettings.apply {
-                customUserAgentString =
-                    "Mozilla/5.0 Cobalt/25 (Sony, PS4, Wired)"
-
-                isJavaScriptEnabled = true
-
-                androidWebSettings.apply {
-                    useWideViewPort = true
-                    domStorageEnabled = true
-                    hideDefaultVideoPoster = true
-                    mediaPlaybackRequiresUserGesture = false
-                }
-            }
-
-            webView.apply {
-
-                // 🔥 IMPORTANT: SAFE MODE FOR ANDROID BOX
-                setLayerType(View.LAYER_TYPE_SOFTWARE, null)
-
-                isVerticalScrollBarEnabled = false
-                isHorizontalScrollBarEnabled = false
-
-                setInitialScale(30)
-
-                // ⚠️ DISABLED (biar tidak crash 15%)
-                // addJavascriptInterface(ExitBridge(exitTrigger), "ExitBridge")
-                // addJavascriptInterface(NetworkBridge(navigator), "NetworkBridge")
-            }
-        }
-    )
 }
