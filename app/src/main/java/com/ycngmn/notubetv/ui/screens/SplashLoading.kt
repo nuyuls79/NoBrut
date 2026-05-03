@@ -1,6 +1,7 @@
 package com.ycngmn.notubetv.ui.screens
 
 import android.app.Activity
+import android.view.View
 import android.webkit.CookieManager
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.fillMaxSize
@@ -12,13 +13,15 @@ import com.multiplatform.webview.web.LoadingState
 import com.multiplatform.webview.web.WebView
 import com.multiplatform.webview.web.rememberWebViewNavigator
 import com.multiplatform.webview.web.rememberWebViewState
-import com.ycngmn.notubetv.R
 import com.ycngmn.notubetv.ui.YoutubeVM
-import com.ycngmn.notubetv.ui.components.UpdateDialog
-import com.ycngmn.notubetv.utils.*
+import com.ycngmn.notubetv.utils.fetchScripts
+import com.ycngmn.notubetv.utils.readRaw
 
 @Composable
-fun YoutubeWV(youtubeVM: YoutubeVM = viewModel()) {
+fun YoutubeWV(
+    youtubeVM: YoutubeVM = viewModel(),
+    skipSplash: Boolean = true
+) {
 
     val context = LocalContext.current
     val activity = context as? Activity ?: return
@@ -26,8 +29,8 @@ fun YoutubeWV(youtubeVM: YoutubeVM = viewModel()) {
     val state = rememberWebViewState("https://www.youtube.com/tv")
     val navigator = rememberWebViewNavigator()
 
-    val jsScript = youtubeVM.scriptData.value
-    val updateData = youtubeVM.updateData.value
+    val jsScript = youtubeVM.scriptData
+    val updateData = youtubeVM.updateData
 
     val loadingState = state.loadingState
     val exitTrigger = remember { mutableStateOf(false) }
@@ -35,44 +38,50 @@ fun YoutubeWV(youtubeVM: YoutubeVM = viewModel()) {
     val isWebReady = remember { mutableStateOf(false) }
     val isJsInjected = remember { mutableStateOf(false) }
 
+    val isBootSafe = remember { skipSplash }
+
     // 🔙 Back handler
     BackHandler {
-        if (state.loadingState is LoadingState.Finished) {
-            try {
-                navigator.evaluateJavaScript(readRaw(context, R.raw.back_bridge))
-            } catch (_: Exception) {}
-        } else {
+        try {
+            navigator.evaluateJavaScript(readRaw(context, com.ycngmn.notubetv.R.raw.back_bridge))
+        } catch (_: Exception) {
             exitTrigger.value = true
         }
     }
 
-    // 📦 Load script + update
+    // 📦 Load script (safe)
     LaunchedEffect(Unit) {
-        val script = fetchScripts()
-        if (script != null) {
-            youtubeVM.setScript(script)
-        }
-
-        getUpdate(context, navigator) { update ->
-            if (update != null) {
-                youtubeVM.setUpdate(update)
+        try {
+            val script = fetchScripts()
+            if (script != null) {
+                youtubeVM.setScript(script)
             }
-        }
+        } catch (_: Exception) {}
+
+        // update tetap jalan tapi aman
+        try {
+            com.ycngmn.notubetv.utils.getUpdate(context, navigator) { update ->
+                if (update != null) {
+                    youtubeVM.setUpdate(update)
+                }
+            }
+        } catch (_: Exception) {}
     }
 
-    // ⚡ SAFE JS injection (anti crash box)
+    // ⚡ SAFE JS INJECTION (anti crash box)
     LaunchedEffect(loadingState, jsScript, isWebReady.value) {
 
         if (
             loadingState is LoadingState.Finished &&
             jsScript != null &&
             isWebReady.value &&
-            !isJsInjected.value
+            !isJsInjected.value &&
+            isBootSafe
         ) {
 
             isJsInjected.value = true
 
-            kotlinx.coroutines.delay(1500)
+            kotlinx.coroutines.delay(2000)
 
             try {
                 navigator.evaluateJavaScript(jsScript)
@@ -80,28 +89,22 @@ fun YoutubeWV(youtubeVM: YoutubeVM = viewModel()) {
         }
     }
 
-    // 📌 update dialog
-    if (updateData != null) {
-        UpdateDialog(updateData, navigator)
+    // ❌ OPTIONAL SPLASH (DISABLED BY DEFAULT)
+    if (!skipSplash) {
+        val loading = state.loadingState as? LoadingState.Loading
+        if (loading != null) {
+            com.ycngmn.notubetv.ui.screens.SplashLoading(
+                loading.progress.coerceIn(0f, 1f)
+            )
+        }
     }
 
-    // ❌ exit app
-    if (exitTrigger.value) {
-        activity.finish()
-    }
-
-    // 🔄 splash loading
-    val loading = state.loadingState as? LoadingState.Loading
-    if (loading != null) {
-        SplashLoading(loading.progress.coerceIn(0f, 1f))
-    }
-
-    // 🌐 WEBVIEW SAFE MODE
+    // 🚀 WEBVIEW CORE (SAFE MODE)
     WebView(
         modifier = Modifier.fillMaxSize(),
         state = state,
         navigator = navigator,
-        platformWebViewParams = permHandler(context),
+        platformWebViewParams = com.ycngmn.notubetv.utils.permHandler(context),
         captureBackPresses = false,
         onCreated = { webView ->
 
@@ -111,7 +114,6 @@ fun YoutubeWV(youtubeVM: YoutubeVM = viewModel()) {
             cookieManager.setAcceptCookie(true)
 
             state.webSettings.apply {
-
                 customUserAgentString =
                     "Mozilla/5.0 Cobalt/25 (Sony, PS4, Wired)"
 
@@ -127,15 +129,15 @@ fun YoutubeWV(youtubeVM: YoutubeVM = viewModel()) {
 
             webView.apply {
 
-                // 🔥 IMPORTANT: SOFTWARE RENDERING (anti crash Android box)
-                setLayerType(android.view.View.LAYER_TYPE_SOFTWARE, null)
+                // 🔥 IMPORTANT: SAFE MODE FOR ANDROID BOX
+                setLayerType(View.LAYER_TYPE_SOFTWARE, null)
 
                 isVerticalScrollBarEnabled = false
                 isHorizontalScrollBarEnabled = false
 
                 setInitialScale(30)
 
-                // ⚠️ DISABLED FOR STABILITY (enable later if stable)
+                // ⚠️ DISABLED (biar tidak crash 15%)
                 // addJavascriptInterface(ExitBridge(exitTrigger), "ExitBridge")
                 // addJavascriptInterface(NetworkBridge(navigator), "NetworkBridge")
             }
