@@ -6,38 +6,81 @@ import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.engine.okhttp.OkHttp
 import io.ktor.client.request.get
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
-import org.json.JSONArray
+import kotlinx.coroutines.*
 
-class NetworkBridge(val navigator: WebViewNavigator) {
+import org.json.JSONArray
+import org.json.JSONObject
+
+class NetworkBridge(
+    private val navigator: WebViewNavigator
+) {
+
+    // ✅ single scope (lebih aman dari CoroutineScope() liar)
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+    // ✅ reuse client (lebih efisien)
     private val client = HttpClient(OkHttp)
 
     @JavascriptInterface
     fun fetch(url: String, videoId: String) {
-        CoroutineScope(Dispatchers.IO).launch {
+
+        scope.launch {
             try {
-                val body = client.get(url).body<String>()
-                val filteredBody =
-                    if (body.startsWith("[")) filterSponsorBlock(body, videoId)
-                    else body
-                val js = "window.onNetworkBridgeResponse('$filteredBody');"
-                withContext(Dispatchers.Main) { navigator.evaluateJavaScript(js) }
-            } catch (_: Exception) { /*Just don't crash'*/ }
+
+                val body: String = client.get(url).body()
+
+                val result =
+                    if (body.trim().startsWith("[")) {
+                        filterSponsorBlock(body, videoId)
+                    } else {
+                        body
+                    }
+
+                val safeJson = result
+                    .replace("\\", "\\\\")
+                    .replace("'", "\\'")
+
+                val js = "window.onNetworkBridgeResponse('$safeJson');"
+
+                withContext(Dispatchers.Main) {
+                    navigator.evaluateJavaScript(js)
+                }
+
+            } catch (e: Exception) {
+
+                // optional: kirim error ke JS biar debug gampang
+                val jsError = "window.onNetworkBridgeResponse('');"
+
+                withContext(Dispatchers.Main) {
+                    navigator.evaluateJavaScript(jsError)
+                }
+            }
         }
     }
 
     private fun filterSponsorBlock(body: String, videoId: String): String {
-        val json = JSONArray(body)
+        return try {
 
-        for (i in 0 until json.length()) {
-            val item = json.getJSONObject(i)
-            if (item.getString("videoID") == videoId) {
-                return item.toString()
+            val json = JSONArray(body)
+
+            for (i in 0 until json.length()) {
+                val item: JSONObject = json.optJSONObject(i) ?: continue
+
+                if (item.optString("videoID") == videoId) {
+                    return item.toString()
+                }
             }
+
+            ""
+
+        } catch (e: Exception) {
+            ""
         }
-        return ""
+    }
+
+    // ⚠️ optional cleanup kalau nanti kamu dispose WebView
+    fun destroy() {
+        scope.cancel()
+        client.close()
     }
 }
