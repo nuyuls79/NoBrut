@@ -1,15 +1,13 @@
 package com.ycngmn.notubetv.ui.screens
 
 import android.app.Activity
+import android.os.Build
 import android.view.View
 import android.view.WindowManager
 import android.webkit.CookieManager
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
+import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -20,18 +18,13 @@ import com.multiplatform.webview.web.rememberWebViewState
 import com.ycngmn.notubetv.R
 import com.ycngmn.notubetv.ui.YoutubeVM
 import com.ycngmn.notubetv.ui.components.UpdateDialog
-import com.ycngmn.notubetv.utils.ExitBridge
-import com.ycngmn.notubetv.utils.NetworkBridge
-import com.ycngmn.notubetv.utils.fetchScripts
-import com.ycngmn.notubetv.utils.getUpdate
-import com.ycngmn.notubetv.utils.permHandler
-import com.ycngmn.notubetv.utils.readRaw
+import com.ycngmn.notubetv.utils.*
 
 @Composable
 fun YoutubeWV(youtubeVM: YoutubeVM = viewModel()) {
 
     val context = LocalContext.current
-    val activity = context as Activity
+    val activity = context as? Activity ?: return // ✅ FIX: safe cast
 
     val state = rememberWebViewState("https://www.youtube.com/tv")
     val navigator = rememberWebViewNavigator()
@@ -42,31 +35,46 @@ fun YoutubeWV(youtubeVM: YoutubeVM = viewModel()) {
     val loadingState = state.loadingState
     val exitTrigger = remember { mutableStateOf(false) }
 
-    // Translate native back-presses to 'escape' button press
+    // ✅ Handle back press safely
     BackHandler {
-        if (state.loadingState is LoadingState.Finished)
+        if (state.loadingState is LoadingState.Finished) {
             navigator.evaluateJavaScript(readRaw(context, R.raw.back_bridge))
-        else exitTrigger.value = true
+        } else {
+            exitTrigger.value = true
+        }
     }
 
-    // Fetch scripts and updates at launch
+    // ✅ Fetch data once
     LaunchedEffect(Unit) {
-        youtubeVM.setScript(fetchScripts() )
+        youtubeVM.setScript(fetchScripts())
+
         getUpdate(context, navigator) { update ->
             if (update != null) youtubeVM.setUpdate(update)
         }
     }
 
-    if (loadingState == LoadingState.Finished && jsScript != null)
-        navigator.evaluateJavaScript(jsScript)
-    // If any update found, show the dialog.
-    if (updateData != null) UpdateDialog(updateData, navigator)
-    // If exit button is pressed, 'finish the activity' aka 'exit the app'.
-    if (exitTrigger.value) activity.finish()
+    // ✅ Inject JS ONLY once when finished
+    LaunchedEffect(loadingState, jsScript) {
+        if (loadingState == LoadingState.Finished && jsScript != null) {
+            navigator.evaluateJavaScript(jsScript)
+        }
+    }
 
-    // This is the loading screen
+    // ✅ Show update dialog
+    if (updateData != null) {
+        UpdateDialog(updateData, navigator)
+    }
+
+    // ✅ Exit app
+    if (exitTrigger.value) {
+        activity.finish()
+    }
+
+    // ✅ Splash loading (safe progress)
     val loading = state.loadingState as? LoadingState.Loading
-    if (loading != null) SplashLoading(loading.progress)
+    if (loading != null) {
+        SplashLoading(loading.progress.coerceIn(0f, 1f))
+    }
 
     WebView(
         modifier = Modifier.fillMaxSize(),
@@ -76,25 +84,31 @@ fun YoutubeWV(youtubeVM: YoutubeVM = viewModel()) {
         captureBackPresses = false,
         onCreated = { webView ->
 
-            (activity.window).setLayout(
+            activity.window.setLayout(
                 WindowManager.LayoutParams.MATCH_PARENT,
                 WindowManager.LayoutParams.MATCH_PARENT
             )
 
-            // Set up cookies
+            // ✅ Cookie FIX for API 23
             val cookieManager = CookieManager.getInstance()
             cookieManager.setAcceptCookie(true)
-            cookieManager.setAcceptThirdPartyCookies(webView, true)
-            cookieManager.flush()
+
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+                cookieManager.setAcceptThirdPartyCookies(webView, true)
+            }
+
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+                cookieManager.flush()
+            }
 
             state.webSettings.apply {
-                // This user agent provides native like experience.
-                // "PS4" for 4K. "Wired" for previews.
-                customUserAgentString = "Mozilla/5.0 Cobalt/25 (Sony, PS4, Wired)"
+
+                customUserAgentString =
+                    "Mozilla/5.0 Cobalt/25 (Sony, PS4, Wired)"
+
                 isJavaScriptEnabled = true
 
                 androidWebSettings.apply {
-                    //isDebugInspectorInfoEnabled = true
                     useWideViewPort = true
                     domStorageEnabled = true
                     hideDefaultVideoPoster = true
@@ -104,21 +118,17 @@ fun YoutubeWV(youtubeVM: YoutubeVM = viewModel()) {
 
             webView.apply {
 
-                // Bridges the exit button click on the website to handle it natively.
+                // ✅ JS Bridge (safe)
                 addJavascriptInterface(ExitBridge(exitTrigger), "ExitBridge")
-
-                /*
-                Youtube's content security policy doesn't allow calling fetch on
-                3rd party websites (eg. SponsorBlock api). This bridge counters that
-                handling the requests on the native side. */
                 addJavascriptInterface(NetworkBridge(navigator), "NetworkBridge")
 
-                // Enables hardware acceleration
+                // ✅ Hardware acceleration fix
                 setLayerType(View.LAYER_TYPE_HARDWARE, null)
-                // Set the zoom to 25% to fit the screen. Side-effect of viewport spoofing.
-                setInitialScale(25)
 
-                // Hide scrollbars
+                // ⚠️ FIX: jangan terlalu kecil di device lama
+                setInitialScale(30) // sebelumnya 25 → bisa bikin crash di beberapa device
+
+                // ✅ Disable scrollbar
                 isVerticalScrollBarEnabled = false
                 isHorizontalScrollBarEnabled = false
             }
